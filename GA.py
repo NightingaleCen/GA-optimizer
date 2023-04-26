@@ -21,7 +21,7 @@ class GA:
         mutation_rate: float,
         mutation_ratio: float,
         MLP_architecture: list,
-        seed: int = 42,
+        seed: int = None,
     ) -> None:
         self.M = M
         self.Pc = Pc
@@ -32,12 +32,17 @@ class GA:
         self.mutation_ratio = mutation_ratio
         self.MLP_architecture = MLP_architecture
 
-        np.random.seed(seed)  # 指定一个随机数种子
+        if seed != None:
+            np.random.seed(seed)  # 指定一个随机数种子
 
         self.train_data = train_data
         self.train_label = train_label
         self.test_data = test_data
         self.test_label = test_label
+
+        shuffle_mask = np.random.permutation(self.train_data.shape[0])
+        self.train_data = self.train_data[shuffle_mask]
+        self.train_label = self.train_label[shuffle_mask]
 
         self.chromosome_length = sum(
             [
@@ -68,23 +73,19 @@ class GA:
         process_bar = tqdm(total=self.epoch * steps, desc="GA process")
 
         for epoch in range(self.epoch):
-            shuffle_mask = np.random.permutation(self.train_data.shape[0])
-            self.train_data = self.train_data[shuffle_mask]
-            self.train_label = self.train_label[shuffle_mask]
-
             for i in range(steps):
-                self.__select()
-                self.__crossover_SBX()
-                self.__mutate()
+                self.__select()  # 选择
+                self.__crossover_SBX()  # 交叉
+                self.__mutate()  # 变异
 
                 x = self.train_data[
                     i * self.batch_size : min((i + 1) * self.batch_size, train_size)
-                ]
+                ]  # 取一个batch用于计算置信度
                 label = self.train_label[
                     i * self.batch_size : min((i + 1) * self.batch_size, train_size)
                 ]
 
-                asyncio.run(self.__eval_accuracy(x, label))
+                asyncio.run(self.__eval_accuracy(x, label))  # 计算适应度
                 process_bar.update(1)
 
         best_model = MLP(self.__best_individual, layer_dims=self.MLP_architecture)
@@ -186,27 +187,6 @@ class GA:
         select_mask = np.searchsorted(cum_prob, p)  # 轮盘赌得到选择的亲本下标
         self.population = self.population[select_mask]
         self.fitness = self.fitness[select_mask]
-
-    def __crossover_linear(self):
-        """使用线性加权对选定的亲本进行交叉"""
-        p = np.random.rand(self.M)
-        parents = self.population[p < self.Pc]
-        if parents.shape[0] == 0:
-            return
-        parents = parents[np.random.permutation(parents.shape[0])]  # 随机打乱亲本
-
-        parentA, parentB = np.vsplit(parents, [parents.shape[0] // 2])
-        if parents.shape[0] % 2 != 0:  # 如果亲本数量非偶则需要特殊处理
-            parentA = np.vstack((parentA, parentB[-1]))
-
-        alpha = np.random.rand(1)
-        childA = alpha * parentA + (1 - alpha) * parentB
-        childB = (1 - alpha) * parentA + alpha * parentB
-
-        if parents.shape[0] % 2 != 0:
-            childA, _ = np.vsplit(childA, [childA.shape[0] - 1])
-
-        self.population[p < self.Pc] = np.vstack((childA, childB))
 
     def __crossover_SBX(self):
         """使用模拟二进制交叉对选定的亲本进行交叉"""
